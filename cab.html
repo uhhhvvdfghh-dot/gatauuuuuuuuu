@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="id" x-data="desaApp()">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Spatial Rarang - Pro Version</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f1f5f9; }
+        .sidebar-active { background: #064e3b; color: white; border-right: 4px solid #10b981; }
+        #map { height: 450px; border-radius: 1.5rem; border: 1px solid #e2e8f0; }
+        .loading-overlay { background: rgba(6, 78, 59, 0.95); z-index: 9999; }
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="overflow-hidden">
+
+    <!-- PRELOADER -->
+    <div x-show="loading" class="fixed inset-0 loading-overlay flex flex-col items-center justify-center text-white" x-transition:leave="transition ease-in duration-500 transform opacity-0">
+        <div class="w-16 h-16 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <h2 class="text-xl font-black tracking-widest animate-pulse">MEMUAT DATA SPATIAL...</h2>
+    </div>
+
+    <div class="flex h-screen w-full" x-cloak>
+        
+        <!-- SIDEBAR (Desktop) -->
+        <aside class="hidden lg:flex w-72 bg-[#064e3b] text-emerald-100/70 flex-col p-6 shadow-2xl">
+            <div class="flex items-center gap-3 mb-10 px-2">
+                <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
+                    <img :src="siteData.logoUrl" class="w-8 h-8 object-contain" onerror="this.src='https://ui-avatars.com/api/?name=DR&background=fff&color=064e3b'">
+                </div>
+                <h1 class="text-white font-black text-xl tracking-tight">Desa Rarang</h1>
+            </div>
+
+            <nav class="space-y-2 flex-1">
+                <template x-for="m in menus">
+                    <button @click="changePage(m.id)" 
+                            :class="activePage === m.id ? 'sidebar-active shadow-lg shadow-black/20' : 'hover:bg-white/5'"
+                            class="w-full flex items-center gap-4 px-5 py-3.5 rounded-xl font-bold transition-all duration-300">
+                        <span x-html="m.icon"></span>
+                        <span x-text="m.name"></span>
+                    </button>
+                </template>
+            </nav>
+
+            <div class="mt-auto p-5 bg-white/5 rounded-3xl">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-full bg-emerald-500 border-2 border-white/20"></div>
+                    <div>
+                        <p class="text-white font-bold text-sm">Admin Desa</p>
+                        <p class="text-[10px] uppercase font-black text-emerald-400">Terverifikasi</p>
+                    </div>
+                </div>
+                <button @click="isLoggedIn ? adminModal = true : loginModal = true" class="w-full bg-emerald-500 text-white py-3 rounded-xl font-black text-sm hover:bg-emerald-400 transition">
+                    <span x-text="isLoggedIn ? 'Buka Pengaturan' : 'Admin Login'"></span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <div class="flex-1 flex flex-col overflow-hidden relative">
+            
+            <!-- HEADER -->
+            <header class="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-40">
+                <div class="flex items-center gap-4">
+                    <button @click="goBack()" class="p-2 hover:bg-slate-100 rounded-full transition text-slate-400">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                    </button>
+                    <div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Selamat Datang di</p>
+                        <h2 class="text-2xl font-black text-slate-800" x-text="siteData.villageName"></h2>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="text-right hidden md:block">
+                        <p class="text-sm font-bold text-slate-800" x-text="currentDate"></p>
+                        <p class="text-[10px] text-emerald-600 font-black">SISTEM SPATIAL TERPADU</p>
+                    </div>
+                </div>
+            </header>
+
+            <!-- PAGE CONTENT -->
+            <main class="flex-1 overflow-y-auto p-6 lg:p-10 space-y-8 pb-32 lg:pb-10">
+                
+                <!-- DASHBOARD / PETA WILAYAH -->
+                <div x-show="activePage === 'dashboard' || activePage === 'map'" class="animate__animated animate__fadeIn">
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                        
+                        <!-- Filter Kategori (Sesuai Gambar 1000654971_3.jpg) -->
+                        <div class="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm space-y-6">
+                            <h3 class="font-black text-slate-800">Klasifikasi Wilayah</h3>
+                            <div class="space-y-4">
+                                <template x-for="cat in classifications">
+                                    <label class="flex items-center justify-between p-3 rounded-2xl hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-200 transition">
+                                        <div class="flex items-center gap-3">
+                                            <input type="radio" name="cat" :value="cat.range" x-model="selectedCat" class="w-4 h-4 text-emerald-600 focus:ring-emerald-500">
+                                            <span class="text-sm font-bold text-slate-600" x-text="cat.range + ' Dusun'"></span>
+                                        </div>
+                                        <div class="w-8 h-4 rounded-md shadow-inner" :style="'background:' + cat.color"></div>
+                                    </label>
+                                </template>
+                            </div>
+                            <div class="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                                <p class="text-[10px] text-emerald-700 leading-relaxed font-bold italic">
+                                    * Semakin gelap warna pada peta, semakin banyak jumlah dusun/populasi di wilayah tersebut.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Main Map -->
+                        <div class="lg:col-span-3 bg-white p-4 rounded-[2.5rem] border border-slate-200 shadow-sm relative">
+                            <div class="flex items-center justify-between mb-4 px-4 pt-2">
+                                <h3 class="font-black text-slate-800">Peta Digital Area Desa Rarang</h3>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[10px] font-black text-slate-400">JUMLAH DUSUN:</span>
+                                    <div class="w-32 h-2 rounded-full bg-gradient-to-r from-emerald-200 via-orange-400 to-purple-600"></div>
+                                </div>
+                            </div>
+                            <div id="map"></div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Cards (Summary) -->
+                    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mt-8">
+                        <template x-for="cat in classifications">
+                            <div class="bg-white p-6 rounded-[2rem] border-b-4 shadow-sm text-center" :style="'border-color:' + cat.color">
+                                <div class="w-4 h-4 rounded-full mx-auto mb-2" :style="'background:' + cat.color"></div>
+                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest" x-text="cat.range + ' Dusun'"></p>
+                                <h4 class="text-2xl font-black text-slate-800" x-text="cat.count"></h4>
+                                <p class="text-[10px] text-slate-400">Wilayah</p>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- STATISTIK PAGE (Charts) -->
+                <div x-show="activePage === 'stats'" class="animate__animated animate__fadeIn space-y-8 text-center lg:text-left">
+                    <div class="flex items-center justify-between px-2">
+                        <div>
+                            <h2 class="text-3xl font-black text-slate-800">Analitik Sektoral</h2>
+                            <p class="text-slate-500 font-bold">Data statistik kependudukan dan pertanian terintegrasi.</p>
+                        </div>
+                        <button @click="refreshCharts()" class="p-4 bg-white rounded-2xl shadow-sm border text-emerald-600 hover:rotate-180 transition-all duration-500">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Bar Chart -->
+                        <div class="lg:col-span-2 bg-white p-8 rounded-[3rem] shadow-sm border">
+                            <h4 class="font-black mb-6 flex items-center gap-2"><span class="w-1.5 h-6 bg-emerald-500 rounded-full"></span> Pertumbuhan Dusun (Bar Chart)</h4>
+                            <div class="h-80"><canvas id="barChart"></canvas></div>
+                        </div>
+                        <!-- Pie Chart -->
+                        <div class="bg-white p-8 rounded-[3rem] shadow-sm border">
+                            <h4 class="font-black mb-6">Proporsi Wilayah (Pie)</h4>
+                            <div class="h-80"><canvas id="pieChart"></canvas></div>
+                        </div>
+                        <!-- Line Chart -->
+                        <div class="lg:col-span-3 bg-white p-8 rounded-[3rem] shadow-sm border">
+                            <h4 class="font-black mb-6 flex items-center gap-2"><span class="w-1.5 h-6 bg-orange-500 rounded-full"></span> Tren Hasil Panen (Line Chart)</h4>
+                            <div class="h-80"><canvas id="lineChart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+
+            <!-- MOBILE NAV -->
+            <nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-4 flex justify-between items-center z-[100]">
+                <button @click="changePage('dashboard')" :class="activePage === 'dashboard' ? 'text-emerald-600' : 'text-slate-400'" class="flex flex-col items-center gap-1">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                    <span class="text-[10px] font-black uppercase">Dashboard</span>
+                </button>
+                <button @click="changePage('stats')" :class="activePage === 'stats' ? 'text-emerald-600' : 'text-slate-400'" class="flex flex-col items-center gap-1">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    <span class="text-[10px] font-black uppercase">Statistik</span>
+                </button>
+                <button @click="isLoggedIn ? adminModal = true : loginModal = true" class="w-12 h-12 bg-emerald-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-200">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                </button>
+            </nav>
+
+        </div>
+    </div>
+
+    <!-- ADMIN MODAL (Full Editor) -->
+    <div x-show="adminModal" class="fixed inset-0 z-[200] flex justify-end" x-cloak>
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="adminModal = false"></div>
+        <div class="relative w-full max-w-xl bg-white h-full shadow-2xl flex flex-col animate__animated animate__slideInRight">
+            <div class="p-8 border-b flex items-center justify-between bg-slate-50">
+                <h2 class="text-2xl font-black text-slate-800">Master Data Editor</h2>
+                <button @click="adminModal = false" class="p-2 hover:bg-slate-200 rounded-xl">✖</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-8 space-y-8">
+                <!-- Edit Branding -->
+                <section class="space-y-4">
+                    <h4 class="text-xs font-black text-emerald-600 uppercase tracking-widest">Identitas Desa</h4>
+                    <input type="text" x-model="siteData.villageName" class="w-full p-4 bg-slate-100 rounded-2xl border-none font-bold">
+                    <input type="text" x-model="siteData.logoUrl" class="w-full p-4 bg-slate-100 rounded-2xl border-none text-xs">
+                </section>
+                <!-- Edit Spatial Data -->
+                <section class="space-y-4">
+                    <h4 class="text-xs font-black text-orange-600 uppercase tracking-widest">Data Wilayah (Peta)</h4>
+                    <template x-for="area in spatialData.features">
+                        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                            <p class="text-xs font-black" x-text="area.properties.name"></p>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="space-y-1">
+                                    <label class="text-[10px] font-bold text-slate-400">JUMLAH DUSUN</label>
+                                    <input type="number" x-model="area.properties.dusun" class="w-full p-2 bg-white rounded-lg border border-slate-200 font-bold">
+                                </div>
+                                <div class="space-y-1">
+                                    <label class="text-[10px] font-bold text-slate-400">POKTA (HASIL TANI)</label>
+                                    <input type="number" x-model="area.properties.hasil" class="w-full p-2 bg-white rounded-lg border border-slate-200 font-bold">
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </section>
+            </div>
+            <div class="p-8 border-t bg-white">
+                <button @click="saveAndRefresh()" class="w-full bg-slate-900 text-white py-5 rounded-[2rem] font-black shadow-xl hover:bg-emerald-600 transition">
+                    SIMPAN SEMUA PERUBAHAN
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGIN MODAL -->
+    <div x-show="loginModal" class="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md" x-cloak>
+        <div class="bg-white p-10 rounded-[3rem] w-full max-w-sm shadow-2xl text-center animate__animated animate__zoomIn">
+            <h3 class="text-2xl font-black mb-8 text-slate-800">Verifikasi Admin</h3>
+            <input type="password" x-model="pin" placeholder="Masukkan PIN" class="w-full p-5 bg-slate-100 rounded-2xl border-none text-center text-2xl tracking-[0.5em] mb-8 focus:ring-2 focus:ring-emerald-500 outline-none">
+            <div class="flex gap-4">
+                <button @click="loginModal = false" class="flex-1 font-bold text-slate-400">Batal</button>
+                <button @click="handleLogin()" class="flex-[2] bg-[#064e3b] text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100">Masuk</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function desaApp() {
+            return {
+                loading: true,
+                activePage: 'dashboard',
+                isLoggedIn: false,
+                loginModal: false,
+                adminModal: false,
+                pin: '',
+                selectedCat: '1-2',
+                currentDate: new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(new Date()),
+                
+                siteData: {
+                    villageName: 'Desa Rarang',
+                    logoUrl: '',
+                },
+
+                menus: [
+                    { id: 'dashboard', name: 'Dashboard', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>' },
+                    { id: 'map', name: 'Peta Wilayah', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M9 20l-5.447-2.724A2 2 0 013 15.382V6.618a2 2 0 011.553-1.944L9 4m0 16l5.447-2.724A2 2 0 0016 15.382V6.618a2 2 0 00-1.553-1.944L9 4m0 16V4m0 16l5-2.5"/></svg>' },
+                    { id: 'stats', name: 'Statistik', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/><path stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/></svg>' },
+                ],
+
+                classifications: [
+                    { range: '1 - 2', color: '#a7f3d0', count: 2 },
+                    { range: '3 - 4', color: '#fbdf85', count: 2 },
+                    { range: '5 - 6', color: '#fb923c', count: 1 },
+                    { range: '7 - 8', color: '#f87171', count: 0 },
+                    { range: '9+', color: '#c084fc', count: 0 },
+                ],
+
+                // DUMMY SPATIAL GEOJSON (Mewakili Kotak-kotak di Gambar)
+                spatialData: {
+                    type: "FeatureCollection",
+                    features: [
+                        { type: "Feature", properties: { name: "Rarang Utara", dusun: 2, hasil: 45 }, geometry: { type: "Polygon", coordinates: [[[116.415, -8.630], [116.425, -8.630], [116.425, -8.635], [116.415, -8.635], [116.415, -8.630]]] } },
+                        { type: "Feature", properties: { name: "Rarang Barat", dusun: 3, hasil: 30 }, geometry: { type: "Polygon", coordinates: [[[116.410, -8.635], [116.418, -8.635], [116.418, -8.640], [116.410, -8.640], [116.410, -8.635]]] } },
+                        { type: "Feature", properties: { name: "Rarang Tengah", dusun: 6, hasil: 80 }, geometry: { type: "Polygon", coordinates: [[[116.418, -8.635], [116.425, -8.635], [116.425, -8.642], [116.418, -8.642], [116.418, -8.635]]] } },
+                        { type: "Feature", properties: { name: "Rarang Timur", dusun: 4, hasil: 55 }, geometry: { type: "Polygon", coordinates: [[[116.425, -8.632], [116.435, -8.632], [116.435, -8.638], [116.425, -8.638], [116.425, -8.632]]] } },
+                        { type: "Feature", properties: { name: "Rarang Selatan", dusun: 2, hasil: 20 }, geometry: { type: "Polygon", coordinates: [[[116.415, -8.642], [116.423, -8.642], [116.423, -8.648], [116.415, -8.648], [116.415, -8.642]]] } },
+                        { type: "Feature", properties: { name: "Rarang Jaya", dusun: 4, hasil: 60 }, geometry: { type: "Polygon", coordinates: [[[116.423, -8.640], [116.430, -8.640], [116.430, -8.646], [116.423, -8.646], [116.423, -8.640]]] } }
+                    ]
+                },
+
+                map: null,
+                geoJsonLayer: null,
+                charts: {},
+
+                init() {
+                    setTimeout(() => {
+                        this.loading = false;
+                        this.initMap();
+                        this.initCharts();
+                    }, 2000);
+                },
+
+                initMap() {
+                    if (this.map) this.map.remove();
+                    this.map = L.map('map').setView([-8.638, 116.422], 14);
+                    
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(this.map);
+
+                    this.renderGeoJson();
+                },
+
+                renderGeoJson() {
+                    if (this.geoJsonLayer) this.map.removeLayer(this.geoJsonLayer);
+                    
+                    this.geoJsonLayer = L.geoJson(this.spatialData, {
+                        style: (feature) => {
+                            const d = feature.properties.dusun;
+                            let color = '#a7f3d0';
+                            if (d > 8) color = '#c084fc';
+                            else if (d > 6) color = '#f87171';
+                            else if (d > 4) color = '#fb923c';
+                            else if (d > 2) color = '#fbdf85';
+                            
+                            return { fillColor: color, weight: 2, opacity: 1, color: 'white', fillOpacity: 0.8 };
+                        },
+                        onEachFeature: (feature, layer) => {
+                            layer.bindPopup(`<div class="font-bold text-slate-800">${feature.properties.name}</div><div class="text-xs">Jumlah Dusun: ${feature.properties.dusun}</div>`);
+                        }
+                    }).addTo(this.map);
+                },
+
+                initCharts() {
+                    const ctxBar = document.getElementById('barChart').getContext('2d');
+                    this.charts.bar = new Chart(ctxBar, {
+                        type: 'bar',
+                        data: {
+                            labels: this.spatialData.features.map(f => f.properties.name),
+                            datasets: [{ label: 'Jumlah Dusun', data: this.spatialData.features.map(f => f.properties.dusun), backgroundColor: '#10b981', borderRadius: 8 }]
+                        },
+                        options: { maintainAspectRatio: false }
+                    });
+
+                    const ctxPie = document.getElementById('pieChart').getContext('2d');
+                    this.charts.pie = new Chart(ctxPie, {
+                        type: 'pie',
+                        data: {
+                            labels: ['Sangat Padat', 'Padat', 'Normal', 'Rendah'],
+                            datasets: [{ data: [1, 2, 2, 1], backgroundColor: ['#c084fc', '#fb923c', '#fbdf85', '#a7f3d0'] }]
+                        },
+                        options: { maintainAspectRatio: false }
+                    });
+
+                    const ctxLine = document.getElementById('lineChart').getContext('2d');
+                    this.charts.line = new Chart(ctxLine, {
+                        type: 'line',
+                        data: {
+                            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun'],
+                            datasets: [{ label: 'Hasil Tani (Ton)', data: [12, 19, 15, 25, 22, 30], borderColor: '#f97316', tension: 0.4, fill: true, backgroundColor: 'rgba(249, 115, 22, 0.1)' }]
+                        },
+                        options: { maintainAspectRatio: false }
+                    });
+                },
+
+                changePage(page) {
+                    this.loading = true;
+                    setTimeout(() => {
+                        this.activePage = page;
+                        this.loading = false;
+                        if (page === 'dashboard' || page === 'map') {
+                            setTimeout(() => this.map.invalidateSize(), 100);
+                        }
+                    }, 500);
+                },
+
+                refreshCharts() {
+                    this.loading = true;
+                    setTimeout(() => {
+                        this.loading = false;
+                        alert('Data Statistik Berhasil Sinkron dengan Server!');
+                    }, 1000);
+                },
+
+                handleLogin() {
+                    if (this.pin === '123') {
+                        this.isLoggedIn = true;
+                        this.loginModal = false;
+                        this.pin = '';
+                    } else {
+                        alert('PIN SALAH!');
+                    }
+                },
+
+                saveAndRefresh() {
+                    this.adminModal = false;
+                    this.loading = true;
+                    setTimeout(() => {
+                        this.renderGeoJson();
+                        this.loading = false;
+                        alert('Database Spatial Berhasil Diperbarui!');
+                    }, 1500);
+                },
+
+                goBack() {
+                    this.loading = true;
+                    setTimeout(() => {
+                        window.history.back();
+                    }, 500);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
